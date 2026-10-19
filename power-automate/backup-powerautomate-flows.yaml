@@ -44,7 +44,7 @@ jobs:
       - name: Export all flows
         run: bash backup-flows.sh
         env:
-          PA_CLIENT_ID: ${{ secrets.PA_CLIENT_ID }}
+          PA_APPLICATION_ID: ${{ secrets.PA_CLIENT_ID }}
           PA_CLIENT_SECRET: ${{ secrets.PA_CLIENT_SECRET }}
           PA_TENANT_ID: ${{ secrets.PA_TENANT_ID }}
           PA_ENVIRONMENTS: ${{ vars.PA_ENVIRONMENTS }}
