@@ -1,0 +1,44 @@
+name: Salesforce backup
+description: |
+  Use this action to automatically back up your objects, fields, flows, and other metadata from Salesforce automatically.
+  It requires an Action Secret to be set for SF_AUTH_URL, which must be generated locally first by logging with the CLI (https://developer.salesforce.com/tools/salesforcecli)
+  and then getting the authorized URL - BE CAREFUL as this URL will allow anyone to authenticate to Salesforce, only use it in the Action Secret:
+  - sf org login web --alias prod
+  - sf org auth show-sfdx-auth-url -o prod
+
+on:
+  schedule: [{ cron: "0 3 * * *" }]   # daily 03:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/* }
+      - run: npm install -g @salesforce/cli
+      - name: Authenticate
+        run: |
+          echo "${{ secrets.SF_AUTH_URL }}" > auth.txt
+          sf org login sfdx-url --sfdx-url-file auth.txt --alias prod
+          rm auth.txt
+      - name: Build manifest and retrieve (temp project)
+        run: |
+          sf project generate --name sfbak --output-dir /tmp
+          cd /tmp/sfbak
+          sf project generate manifest --from-org prod --name package --output-dir manifest
+          sf project retrieve start --manifest manifest/package.xml --target-org prod --wait 60
+      - name: Mirror into main/
+        run: |
+          mkdir -p main/default manifest
+          rsync -a --delete /tmp/sfbak/force-app/main/default/ main/default/
+          cp /tmp/sfbak/manifest/package.xml manifest/package.xml
+      - name: Commit
+        run: |
+          git config user.name "sf-backup-bot"
+          git config user.email "sf-backup-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Salesforce backup $(date -u +%F)"
+          git push
