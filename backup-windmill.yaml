@@ -1,0 +1,28 @@
+name: Windmill backup
+description: |
+  Works with the Windmill.dev CLI to backup your scripts and flows automatically. In order to use it you must first set
+  Action Variables WM_WORKSPACE and WM_URL for your workspace id and Windmill URL, as well as an Action Secret WM_TOKEN
+  generated in the user settings of the running user account
+
+on:
+  schedule: [{ cron: "0 * * * *" }]   # hourly
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/* }
+      - run: npm install -g windmill-cli
+      - run: |
+          wmill workspace add main ${{ vars.WM_WORKSPACE }} ${{ vars.WM_URL }} --token ${{ secrets.WM_TOKEN }}
+          wmill sync pull --yes
+      - run: |
+          git config user.name "windmill-bot"
+          git config user.email "windmill-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Windmill sync $(date -u +%F_%H%M)"
+          git push
