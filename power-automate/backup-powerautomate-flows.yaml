@@ -1,31 +1,4 @@
 name: Power Automate backup
-description: |
-  # Backups flows on Power Automate, set Action secret and variables
-  # Runs on Azure Cloud Shell, adapt as you see fit
-  bash
-  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0
-  export DOTNET_ROOT="$HOME/.dotnet"
-  export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
-  dotnet --version        # should start with 10.
-  
-  dotnet tool install --global Microsoft.PowerApps.CLI.Tool
-  pac auth create --deviceCode
-  pac admin create-service-principal --environment <ENV_ID:Tenant_id>
-  
-  ###### Capture the output
-  #  Application Name         PowerPlatform-Jumpstart for Young Children (default)
-  #  Tenant Id                <var.PA_TENANT_ID>
-  #  Application Id           <var.PA_APPLICATION_ID>
-  #  Service Principal Id     ignore
-  #  Client Secret            <secrets.PA_CLIENT_SECRET>
-  #  Client Secret Expiration ignore
-  #  System User Id           ignore
-  ########
-  
-  # optional, make key long lived
-  az ad app credential reset --id PA_APPLICATION_ID --display-name github-flow-backup \
-    --years 10 --query password -o tsv
-
 on:
   schedule: [{ cron: "0 4 * * *" }]
   workflow_dispatch:
@@ -35,29 +8,35 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: Export all flows
         run: bash backup-flows.sh
         env:
-          PA_APPLICATION_ID: ${{ vars.PA_APPLICATION_ID }}
+          PA_APPLICATION_ID: ${{ secrets.PA_APPLICATION_ID }}
           PA_CLIENT_SECRET: ${{ secrets.PA_CLIENT_SECRET }}
-          PA_TENANT_ID: ${{ vars.PA_TENANT_ID }}
+          PA_TENANT_ID: ${{ secrets.PA_TENANT_ID }}
           PA_ENVIRONMENTS: ${{ vars.PA_ENVIRONMENTS }}
       - name: Commit
+        if: always()
         run: |
           git config user.name "pa-backup-bot"
           git config user.email "pa-backup-bot@users.noreply.github.com"
           git add -A
           git diff --cached --quiet || git commit -m "Power Automate backup $(date -u +%F)"
           git push
-      - name: Alert on failure
-        if: failure()
+      - name: Alert
+        if: failure() || hashFiles('flows/_unreadable.txt') != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue create --repo ${{ github.repository }} \
-            --title "Backup failed: ${{ github.workflow }}" \
-            --body "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --assignee alice,bob
+          title="Power Automate backup needs attention"
+          open=$(gh issue list --repo ${{ github.repository }} --state open \
+                   --search "in:title \"$title\"" --json number -q '.[].number')
+          if [ -n "$open" ]; then echo "Issue #$open is already open; not creating another."; exit 0; fi
+          body="Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f flows/_unreadable.txt ]; then
+            body="$body"$'\n\nFlows not backed up (environment | flow | reason):\n'"$(cat flows/_unreadable.txt)"
+          fi
+          gh issue create --repo ${{ github.repository }} --title "$title" --body "$body" --assignee alice,bob
