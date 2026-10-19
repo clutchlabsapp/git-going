@@ -1,6 +1,6 @@
 name: Power Automate backup
 on:
-  schedule: [{ cron: "0 4 * * *" }]
+  schedule: [{ cron: "0 4 * * *" }] # runs at 04:00 UTC every day
   workflow_dispatch:
 permissions:
   contents: write
@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Export all flows
         run: bash backup-flows.sh
         env:
-          PA_APPLICATION_ID: ${{ secrets.PA_APPLICATION_ID }}
+          PA_APPLICATION_ID: ${{ vars.PA_APPLICATION_ID }}
           PA_CLIENT_SECRET: ${{ secrets.PA_CLIENT_SECRET }}
-          PA_TENANT_ID: ${{ secrets.PA_TENANT_ID }}
+          PA_TENANT_ID: ${{ vars.PA_TENANT_ID }}
           PA_ENVIRONMENTS: ${{ vars.PA_ENVIRONMENTS }}
       - name: Commit
         if: always()
@@ -39,4 +39,4 @@ jobs:
           if [ -f flows/_unreadable.txt ]; then
             body="$body"$'\n\nFlows not backed up (environment | flow | reason):\n'"$(cat flows/_unreadable.txt)"
           fi
-          gh issue create --repo ${{ github.repository }} --title "$title" --body "$body" --assignee alice,bob
+          gh issue create --repo ${{ github.repository }} --title "$title" --body "$body"
