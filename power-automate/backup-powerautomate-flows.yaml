@@ -1,0 +1,66 @@
+name: Power Automate backup
+description: |
+  # Backups flows on Power Automate, set Action secret and variables
+  # Runs on Azure Cloud Shell, adapt as you see fit
+  bash
+  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0
+  export DOTNET_ROOT="$HOME/.dotnet"
+  export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
+  dotnet --version        # should start with 10.
+  
+  dotnet tool install --global Microsoft.PowerApps.CLI.Tool
+  pac auth create --deviceCode
+  pac admin create-service-principal --environment <ENV_ID:Tenant_id>
+  
+  ###### Capture the output
+  #  Application Name         PowerPlatform-Jumpstart for Young Children (default)
+  #  Tenant Id                <var.PA_TENANT_ID>
+  #  Application Id           <var.PA_APPLICATION_ID>
+  #  Service Principal Id     ignore
+  #  Client Secret            <secrets.PA_CLIENT_SECRET>
+  #  Client Secret Expiration ignore
+  #  System User Id           ignore
+  ########
+  
+  # optional, make key long lived
+  az ad app credential reset --id PA_APPLICATION_ID --display-name github-flow-backup \
+    --years 10 --query password -o tsv
+
+on:
+  schedule: [{ cron: "0 4 * * *" }]
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/* }
+      - run: npm install -g @pnp/cli-microsoft365
+      - name: Export all flows
+        run: bash backup-flows.sh
+        env:
+          PA_CLIENT_ID: ${{ secrets.PA_CLIENT_ID }}
+          PA_CLIENT_SECRET: ${{ secrets.PA_CLIENT_SECRET }}
+          PA_TENANT_ID: ${{ secrets.PA_TENANT_ID }}
+          PA_ENVIRONMENTS: ${{ vars.PA_ENVIRONMENTS }}
+      - name: Commit
+        run: |
+          git config user.name "pa-backup-bot"
+          git config user.email "pa-backup-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Power Automate backup $(date -u +%F)"
+          git push
+      - name: Alert on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo ${{ github.repository }} \
+            --title "Backup failed: ${{ github.workflow }}" \
+            --body "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --assignee alice,bob
